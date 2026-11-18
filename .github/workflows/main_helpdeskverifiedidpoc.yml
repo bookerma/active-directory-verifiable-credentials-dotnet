@@ -13,7 +13,7 @@ jobs:
   build:
     runs-on: windows-latest
     permissions:
-      contents: read #This is required for actions/checkout
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
@@ -23,32 +23,34 @@ jobs:
         with:
           dotnet-version: '8.x'
 
-      - name: Build Woodgrove Helpdesk
-        run: dotnet build ./6-woodgrove-helpdesk/WoodgroveHelpdesk.csproj --configuration Release
-
       - name: Publish Woodgrove Helpdesk
-        run: dotnet publish ./6-woodgrove-helpdesk/WoodgroveHelpdesk.csproj -c Release -o "${{env.DOTNET_ROOT}}/myapp"
+        run: dotnet publish ./6-woodgrove-helpdesk/WoodgroveHelpdesk.csproj -c Release -o "${{ github.workspace }}/publish"
 
-      - name: Upload artifact for deployment job
+      - name: Create deployment package
+        shell: powershell
+        run: Compress-Archive -Path "${{ github.workspace }}/publish/*" -DestinationPath "${{ github.workspace }}/woodgrove.zip"
+
+      - name: Upload deployment package
         uses: actions/upload-artifact@v4
         with:
-          name: .net-app
-          path: ${{env.DOTNET_ROOT}}/myapp
+          name: woodgrove-package
+          path: ${{ github.workspace }}/woodgrove.zip
 
   deploy:
     runs-on: windows-latest
     needs: build
+
     permissions:
-      id-token: write #This is required for requesting the JWT
-      contents: read #This is required for actions/checkout
+      id-token: write
+      contents: read
 
     steps:
-      - name: Download artifact from build job
+      - name: Download deployment package
         uses: actions/download-artifact@v4
         with:
-          name: .net-app
-          path: ./publish
-      
+          name: woodgrove-package
+          path: ./deployment
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -56,10 +58,11 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_302CB2106E39438F936CC7FA01C2F38C }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_D2F4EB9A59674F6F8E4DE9CE64B87A0E }}
 
-      - name: Deploy to Azure Web App
-        id: deploy-to-webapp
+      - name: Deploy Woodgrove Helpdesk to Azure
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'HelpdeskVerifiedIDPOC'
+          slot-name: 'Production'
+          package: ./deployment/woodgrove.zip
           slot-name: 'Production'
           package: ./publish
